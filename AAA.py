@@ -20,7 +20,7 @@ import pypdfium2 as pdfium
 # Configuración Streamlit
 # ======================
 st.set_page_config(page_title="📄 Analizador PQR – Triple A", layout="wide")
-st.title("📄 Analizador de Derechos de Petición (PQR) – Triple A ⚖️")
+st.title("📄 Analizador de Derechos de Petición (PQR) – Triple A 🦾🤖🫆")
 st.caption("Carga PDFs o un ZIP con varios clientes. El sistema convierte a imágenes y extrae datos + pretensiones exactas.")
 
 # ======================
