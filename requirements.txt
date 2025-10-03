@@ -1,0 +1,8 @@
+streamlit>=1.37
+pandas
+openpyxl
+pypdfium2
+pillow
+openai>=1.40.0
+python-magic-bin; platform_system == "Windows"
+python-magic; platform_system != "Windows"
