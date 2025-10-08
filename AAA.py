@@ -361,8 +361,11 @@ def call_vision_on_pair(oficio_imgs: List[Image.Image], respuesta_bytes: bytes, 
     except Exception:
         respuesta_text = "NO SE PUDO LEER LA RESPUESTA – VALIDAR MANUALMENTE"
 
-    # 3️⃣ Prompt comparativo
-   PROMPT_CONTRASTE = (
+    # ======================
+# 🧠 PROMPT DE CONTRASTE (Fase 2)
+# ======================
+
+PROMPT_CONTRASTE = (
     "Eres un analista jurídico de PQR de Triple A en Barranquilla. "
     "Analiza el derecho de petición (oficio) y la respuesta (documento Word). "
     "Tu tarea es comparar ambos para determinar: \n\n"
