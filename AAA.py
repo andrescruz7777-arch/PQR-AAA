@@ -361,30 +361,27 @@ def call_vision_on_pair(oficio_imgs: List[Image.Image], respuesta_bytes: bytes, 
     except Exception:
         respuesta_text = "NO SE PUDO LEER LA RESPUESTA – VALIDAR MANUALMENTE"
 
-    # ======================
-# 🧠 PROMPT DE CONTRASTE (Fase 2)
-# ======================
-
-PROMPT_CONTRASTE = (
-    "Eres un analista jurídico de PQR de Triple A en Barranquilla. "
-    "Analiza el derecho de petición (oficio) y la respuesta (documento Word). "
-    "Tu tarea es comparar ambos para determinar: \n\n"
-    "1️⃣ Si cada pretensión o solicitud planteada por el ciudadano fue respondida completa o parcialmente. "
-    "Evalúa por contenido, no por redacción literal. Si se responde con otro texto pero satisface la solicitud, márcala como 'Respondida'. "
-    "Si se omite o solo se menciona sin resolverla, márcala como 'No respondida'.\n\n"
-    "2️⃣ Verifica si los datos del peticionario (nombre, cédula, correo, dirección) son coherentes entre el oficio y la respuesta. "
-    "Considera que pequeñas diferencias tipográficas (mayúsculas/minúsculas, confusión entre 'l', '1' o 'i', espacios o acentos) NO constituyen error. "
-    "Solo marca como 'Incorrectos' si hay cambio de persona o correo completamente distinto. "
-    "Si hay duda leve, marca 'Sí (diferencia menor)' y explica.\n\n"
-    "3️⃣ Si hay errores de digitación, menciona ejemplos específicos (por ejemplo, correo con un carácter cambiado, omisión de número de cédula, etc.).\n\n"
-    "Devuelve un JSON con las claves fijas: \n"
-    "['NOMBRE','CEDULA','CORREO','NOTIFICACION_A','PRETENSIONES_TOTAL','PRETENSIONES_DETALLE',"
-    "'PRETENSIONES_CORRECTAS','DATOS_NOTIFICACION_CORRECTOS','OBSERVACIONES']\n"
-    "Donde 'PRETENSIONES_DETALLE' es una lista de las pretensiones numeradas con indicador (Respondida / No respondida)."
-)
+    # 3️⃣ Prompt de contraste
+    PROMPT_CONTRASTE = (
+        "Eres un analista jurídico de PQR de Triple A en Barranquilla. "
+        "Analiza el derecho de petición (oficio) y la respuesta (documento Word). "
+        "Tu tarea es comparar ambos para determinar: \n\n"
+        "1️⃣ Si cada pretensión o solicitud planteada por el ciudadano fue respondida completa o parcialmente. "
+        "Evalúa por contenido, no por redacción literal. Si se responde con otro texto pero satisface la solicitud, márcala como 'Respondida'. "
+        "Si se omite o solo se menciona sin resolverla, márcala como 'No respondida'.\n\n"
+        "2️⃣ Verifica si los datos del peticionario (nombre, cédula, correo, dirección) son coherentes entre el oficio y la respuesta. "
+        "Considera que pequeñas diferencias tipográficas (mayúsculas/minúsculas, confusión entre 'l', '1' o 'i', espacios o acentos) NO constituyen error. "
+        "Solo marca como 'Incorrectos' si hay cambio de persona o correo completamente distinto. "
+        "Si hay duda leve, marca 'Sí (diferencia menor)' y explica.\n\n"
+        "3️⃣ Si hay errores de digitación, menciona ejemplos específicos (por ejemplo, correo con un carácter cambiado, omisión de número de cédula, etc.).\n\n"
+        "Devuelve un JSON con las claves fijas: \n"
+        "['NOMBRE','CEDULA','CORREO','NOTIFICACION_A','PRETENSIONES_TOTAL','PRETENSIONES_DETALLE',"
+        "'PRETENSIONES_CORRECTAS','DATOS_NOTIFICACION_CORRECTOS','OBSERVACIONES']\n"
+        "Donde 'PRETENSIONES_DETALLE' es una lista de las pretensiones numeradas con indicador (Respondida / No respondida)."
+    )
 
     # 4️⃣ Enviar a OpenAI
-    content_blocks = [{"type": "text", "text": prompt}]
+    content_blocks = [{"type": "text", "text": PROMPT_CONTRASTE}]
     content_blocks.extend(oficio_blocks)
     content_blocks.append({"type": "text", "text": f"Respuesta del analista:\n{respuesta_text}"})
 
@@ -396,12 +393,11 @@ PROMPT_CONTRASTE = (
         )
         raw = resp.choices[0].message.content
         data = _safe_json_loads(raw)
-        if not data:
+        if not data or not isinstance(data, dict):
             raise ValueError("Respuesta IA inválida o vacía")
         return data
     except Exception as e:
         return {"OBSERVACIONES": f"Falla en procesamiento IA: {e}", "PRETENSIONES_TOTAL": 0}
-
 
 # ======================
 # ⚙️ Procesamiento principal – Comparación masiva
