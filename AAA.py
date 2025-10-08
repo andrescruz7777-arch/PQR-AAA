@@ -81,6 +81,9 @@ PROMPT_CORE = (
     "- Si un campo NO aparece o NO es claro, escribe exactamente: 'NO SE APORTÓ – VALIDAR MANUALMENTE'.\n"
     "- Devuelve SOLO un JSON válido con estas 9 claves fijas: \n"
     "  ['CEDULA','NOMBRE','CORREO','TELEFONO','MOTIVO_PQR','QUIEN_PRESENTA','NOTIFICACION_A','RESUMEN_PQR','PRETENSIONES']\n"
+    "Recuerda que los datos de contacto (correo, teléfono, dirección) suelen estar cerca de las palabras 'Notificaciones', 'Correo', 'Dirección' o 'Teléfono'. "
+    "Si los encuentras, extráelos literalmente aunque estén fuera del párrafo principal.\n"
+
 )
 
 def call_vision_on_images(imgs: List[Image.Image], model: str = "gpt-4o-mini") -> Dict:
