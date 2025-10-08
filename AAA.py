@@ -427,48 +427,65 @@ def _empty_payload() -> Dict:
         "DATOS_NOTIFICACION_CORRECTOS": "NO SE APORTÓ – VALIDAR MANUALMENTE",
         "OBSERVACIONES": "NO SE APORTÓ – VALIDAR MANUALMENTE"
     }
+# ======================
+# 📦 Carga flexible de documentos (ZIP o individuales)
+# ======================
+st.subheader("📦 Carga de documentos")
 
-# ======================
-# Ingesta masiva de documentos
-# ======================
-st.subheader("📦 Carga masiva de documentos")
-pqr_zip = st.file_uploader("ZIP con oficios PQR (PDF)", type=["zip"])
-resp_zip = st.file_uploader("ZIP con respuestas (Word)", type=["zip"])
+modo = st.radio("Selecciona modo de carga:", ["Masivo (ZIP)", "Individual (1 cliente)"], horizontal=True)
 
 pairs = {}
-if pqr_zip and resp_zip:
-    pqr_files, resp_files = {}, {}
 
-    # ---- PQR ----
-    with zipfile.ZipFile(pqr_zip) as zf:
-        for f in zf.infolist():
-            if not f.is_dir() and f.filename.lower().endswith(".pdf"):
-                name = os.path.basename(f.filename)
-                with zf.open(f) as data:
-                    pqr_files[name] = data.read()
+if modo == "Masivo (ZIP)":
+    pqr_zip = st.file_uploader("ZIP con oficios PQR (PDF)", type=["zip"])
+    resp_zip = st.file_uploader("ZIP con respuestas (Word)", type=["zip"])
 
-    # ---- RESPUESTAS ----
-    with zipfile.ZipFile(resp_zip) as zf:
-        for f in zf.infolist():
-            if not f.is_dir() and f.filename.lower().endswith(".docx"):
-                name = os.path.basename(f.filename)
-                with zf.open(f) as data:
-                    resp_files[name] = data.read()
+    if pqr_zip and resp_zip:
+        pqr_files, resp_files = {}, {}
 
-    # ---- Asociación por número de radicado ----
-    def get_radicado(name: str):
-        m = re.search(r'(\d{7,9})', name)
-        return m.group(1) if m else None
+        # ---- PQR ----
+        with zipfile.ZipFile(pqr_zip) as zf:
+            for f in zf.infolist():
+                if not f.is_dir() and f.filename.lower().endswith(".pdf"):
+                    name = os.path.basename(f.filename)
+                    with zf.open(f) as data:
+                        pqr_files[name] = data.read()
 
-    for pqr_name, pqr_bytes in pqr_files.items():
-        rad = get_radicado(pqr_name)
-        if not rad: continue
-        for resp_name, resp_bytes in resp_files.items():
-            if rad in resp_name:
-                pairs[rad] = {"pqr": pqr_bytes, "resp": resp_bytes}
+        # ---- RESPUESTAS ----
+        with zipfile.ZipFile(resp_zip) as zf:
+            for f in zf.infolist():
+                if not f.is_dir() and f.filename.lower().endswith(".docx"):
+                    name = os.path.basename(f.filename)
+                    with zf.open(f) as data:
+                        resp_files[name] = data.read()
 
-st.write(f"🧾 Pares detectados: {len(pairs)}")
+        # ---- Asociación por número de radicado ----
+        def get_radicado(name: str):
+            m = re.search(r'(\d{7,9})', name)
+            return m.group(1) if m else None
 
+        for pqr_name, pqr_bytes in pqr_files.items():
+            rad = get_radicado(pqr_name)
+            if not rad: 
+                continue
+            for resp_name, resp_bytes in resp_files.items():
+                if rad in resp_name:
+                    pairs[rad] = {"pqr": pqr_bytes, "resp": resp_bytes}
+
+    st.write(f"🧾 Pares detectados: {len(pairs)}")
+
+else:
+    st.markdown("### 🧍‍♂️ Modo individual – 1 cliente")
+    pqr_pdf = st.file_uploader("📄 Oficio PQR (PDF)", type=["pdf"])
+    resp_docx = st.file_uploader("📑 Respuesta del analista (Word)", type=["docx"])
+
+    if pqr_pdf and resp_docx:
+        # Intentar detectar radicado automáticamente
+        match = re.search(r'(\d{7,9})', pqr_pdf.name)
+        rad = match.group(1) if match else "SIN_RADICADO"
+        pairs[rad] = {"pqr": pqr_pdf.read(), "resp": resp_docx.read()}
+
+    st.write(f"🧾 Pares detectados: {len(pairs)}")
 # ======================
 # Procesamiento IA
 # ======================
