@@ -399,6 +399,7 @@ def call_vision_on_pair(oficio_imgs: List[Image.Image], respuesta_bytes: bytes, 
     except Exception as e:
         return {"OBSERVACIONES": f"Falla en procesamiento IA: {e}", "PRETENSIONES_TOTAL": 0}
 
+
 # ======================
 # ⚙️ Procesamiento principal – Comparación masiva
 # ======================
@@ -421,17 +422,39 @@ if pairs:
                 resultado["ARCHIVO_PQR"] = docs.get("pqr_name", "NO REGISTRADO")
                 resultado["ARCHIVO_RESPUESTA"] = docs.get("resp_name", "NO REGISTRADO")
 
-                # Normalizar detalle
+                # ======================
+                # 🔧 Normalización y métricas
+                # ======================
                 detalle = resultado.get("PRETENSIONES_DETALLE", [])
-                if isinstance(detalle, list):
-                    detalle_str = "\n".join([
-                        f"{idx+1}. {p.get('texto', p) if isinstance(p, dict) else str(p)} "
-                        f"({p.get('respondida','NO') if isinstance(p, dict) else 'NO'})"
-                        for idx, p in enumerate(detalle)
-                    ])
-                else:
-                    detalle_str = str(detalle)
+                respondidas = 0
+                total_pretensiones = 0
 
+                if isinstance(detalle, list) and detalle:
+                    detalle_limpio = []
+                    for idx, p in enumerate(detalle):
+                        if isinstance(p, dict):
+                            texto = p.get("pretension") or p.get("texto") or str(p)
+                            estado = p.get("estado") or p.get("respondida") or "NO"
+                        else:
+                            texto = str(p)
+                            estado = "NO"
+
+                        icono = "✅" if estado.lower().strip() in ["respondida", "sí", "si", "completa", "totalmente respondida"] else "❌"
+                        detalle_limpio.append(f"{idx+1}. {texto.strip()} ({icono})")
+
+                        total_pretensiones += 1
+                        if icono == "✅":
+                            respondidas += 1
+
+                    detalle_str = "\n".join(detalle_limpio)
+                else:
+                    detalle_str = "NO SE ENCONTRARON PRETENSIONES – VALIDAR MANUALMENTE"
+                    total_pretensiones = 0
+                    respondidas = 0
+
+                porcentaje_respondidas = (respondidas / total_pretensiones * 100) if total_pretensiones > 0 else 0
+
+                # Agregar fila consolidada
                 resultados.append({
                     "RADICADO": rad,
                     "POLIZA": re.search(r'(\d{6,})', docs.get("pqr_name", "")) and re.search(r'(\d{6,})', docs["pqr_name"]).group(1) or "NO SE APORTÓ",
@@ -439,7 +462,9 @@ if pairs:
                     "CEDULA": resultado.get("CEDULA", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
                     "CORREO": resultado.get("CORREO", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
                     "NOTIFICACION_A": resultado.get("NOTIFICACION_A", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
-                    "PRETENSIONES_TOTAL": resultado.get("PRETENSIONES_TOTAL", 0),
+                    "PRETENSIONES_TOTAL": total_pretensiones,
+                    "PRETENSIONES_RESPONDIDAS": respondidas,
+                    "PORCENTAJE_RESPONDIDAS": round(porcentaje_respondidas, 1),
                     "PRETENSIONES_DETALLE": detalle_str,
                     "PRETENSIONES_CORRECTAS": resultado.get("PRETENSIONES_CORRECTAS", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
                     "DATOS_NOTIFICACION_CORRECTOS": resultado.get("DATOS_NOTIFICACION_CORRECTOS", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
@@ -457,6 +482,8 @@ if pairs:
                     "CORREO": "ERROR",
                     "NOTIFICACION_A": "ERROR",
                     "PRETENSIONES_TOTAL": 0,
+                    "PRETENSIONES_RESPONDIDAS": 0,
+                    "PORCENTAJE_RESPONDIDAS": 0,
                     "PRETENSIONES_DETALLE": str(e),
                     "PRETENSIONES_CORRECTAS": "ERROR",
                     "DATOS_NOTIFICACION_CORRECTOS": "ERROR",
@@ -473,7 +500,7 @@ if pairs:
         st.subheader("📊 Resultado consolidado")
         st.dataframe(df, use_container_width=True)
 
-        # 📥 Generar Excel con colores condicionales
+        # 📥 Generar Excel con formato condicional
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name="Comparativo_PQR", index=False)
@@ -482,17 +509,16 @@ if pairs:
             from openpyxl.formatting.rule import CellIsRule
             from openpyxl.styles import PatternFill
 
-            # Verde = Correcto
             fill_green = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-            # Amarillo = Parcial
             fill_yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
-            # Rojo = Incorrecto
             fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
 
-            # Aplicar reglas de color
-            ws.conditional_formatting.add("H2:H2000", CellIsRule(operator="equal", formula=['"Sí"'], fill=fill_green))
-            ws.conditional_formatting.add("H2:H2000", CellIsRule(operator="equal", formula=['"Parcial"'], fill=fill_yellow))
-            ws.conditional_formatting.add("H2:H2000", CellIsRule(operator="equal", formula=['"No"'], fill=fill_red))
+            # ✅ Colores por % respondidas
+            ws.conditional_formatting.add("K2:K2000", CellIsRule(operator="greaterThanOrEqual", formula=["80"], fill=fill_green))
+            ws.conditional_formatting.add("K2:K2000", CellIsRule(operator="between", formula=["40", "79.9"], fill=fill_yellow))
+            ws.conditional_formatting.add("K2:K2000", CellIsRule(operator="lessThan", formula=["40"], fill=fill_red))
+
+            # 🟩 Datos correctos
             ws.conditional_formatting.add("I2:I2000", CellIsRule(operator="equal", formula=['"Sí"'], fill=fill_green))
             ws.conditional_formatting.add("I2:I2000", CellIsRule(operator="equal", formula=['"No"'], fill=fill_red))
 
@@ -502,6 +528,6 @@ if pairs:
             file_name="comparativo_pqr_respuestas.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+
 else:
     st.info("Sube los documentos para analizar (PDF + DOCX con mismo radicado).")
-
