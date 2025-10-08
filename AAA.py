@@ -428,64 +428,54 @@ def _empty_payload() -> Dict:
         "OBSERVACIONES": "NO SE APORTÓ – VALIDAR MANUALMENTE"
     }
 # ======================
-# 📦 Carga flexible de documentos (ZIP o individuales)
+# 📦 Carga flexible de documentos (1 o varios, sin ZIP)
 # ======================
-st.subheader("📦 Carga de documentos")
+st.subheader("📦 Carga de documentos PQR y Respuestas")
 
-modo = st.radio("Selecciona modo de carga:", ["Masivo (ZIP)", "Individual (1 cliente)"], horizontal=True)
+uploaded_files = st.file_uploader(
+    "Sube uno o varios archivos PDF (PQR) y Word (respuestas)",
+    type=["pdf", "docx"],
+    accept_multiple_files=True
+)
 
 pairs = {}
 
-if modo == "Masivo (ZIP)":
-    pqr_zip = st.file_uploader("ZIP con oficios PQR (PDF)", type=["zip"])
-    resp_zip = st.file_uploader("ZIP con respuestas (Word)", type=["zip"])
+if uploaded_files:
+    pqr_files, resp_files = {}, {}
 
-    if pqr_zip and resp_zip:
-        pqr_files, resp_files = {}, {}
+    for file in uploaded_files:
+        name = os.path.basename(file.name)
+        data = file.read()
 
-        # ---- PQR ----
-        with zipfile.ZipFile(pqr_zip) as zf:
-            for f in zf.infolist():
-                if not f.is_dir() and f.filename.lower().endswith(".pdf"):
-                    name = os.path.basename(f.filename)
-                    with zf.open(f) as data:
-                        pqr_files[name] = data.read()
+        # Detectar número de radicado (7 a 9 dígitos seguidos)
+        rad_match = re.search(r'(\d{7,9})', name)
+        rad = rad_match.group(1) if rad_match else None
 
-        # ---- RESPUESTAS ----
-        with zipfile.ZipFile(resp_zip) as zf:
-            for f in zf.infolist():
-                if not f.is_dir() and f.filename.lower().endswith(".docx"):
-                    name = os.path.basename(f.filename)
-                    with zf.open(f) as data:
-                        resp_files[name] = data.read()
+        if not rad:
+            st.warning(f"⚠️ No se detectó número de radicado en: {name}")
+            continue
 
-        # ---- Asociación por número de radicado ----
-        def get_radicado(name: str):
-            m = re.search(r'(\d{7,9})', name)
-            return m.group(1) if m else None
+        # Clasificar por tipo
+        if name.lower().endswith(".pdf"):
+            pqr_files[rad] = {"name": name, "data": data}
+        elif name.lower().endswith(".docx"):
+            resp_files[rad] = {"name": name, "data": data}
 
-        for pqr_name, pqr_bytes in pqr_files.items():
-            rad = get_radicado(pqr_name)
-            if not rad: 
-                continue
-            for resp_name, resp_bytes in resp_files.items():
-                if rad in resp_name:
-                    pairs[rad] = {"pqr": pqr_bytes, "resp": resp_bytes}
+    # Asociar por radicado
+    for rad in pqr_files:
+        if rad in resp_files:
+            pairs[rad] = {
+                "pqr": pqr_files[rad]["data"],
+                "pqr_name": pqr_files[rad]["name"],
+                "resp": resp_files[rad]["data"],
+                "resp_name": resp_files[rad]["name"],
+            }
 
-    st.write(f"🧾 Pares detectados: {len(pairs)}")
-
+    st.success(f"🧾 Pares detectados: {len(pairs)}")
+    if len(pairs) < len(pqr_files):
+        st.info(f"📌 Algunos oficios no tienen respuesta asociada.")
 else:
-    st.markdown("### 🧍‍♂️ Modo individual – 1 cliente")
-    pqr_pdf = st.file_uploader("📄 Oficio PQR (PDF)", type=["pdf"])
-    resp_docx = st.file_uploader("📑 Respuesta del analista (Word)", type=["docx"])
-
-    if pqr_pdf and resp_docx:
-        # Intentar detectar radicado automáticamente
-        match = re.search(r'(\d{7,9})', pqr_pdf.name)
-        rad = match.group(1) if match else "SIN_RADICADO"
-        pairs[rad] = {"pqr": pqr_pdf.read(), "resp": resp_docx.read()}
-
-    st.write(f"🧾 Pares detectados: {len(pairs)}")
+    st.info("Sube archivos PDF y Word para comenzar (no es necesario usar ZIP).")
 # ======================
 # Procesamiento IA
 # ======================
