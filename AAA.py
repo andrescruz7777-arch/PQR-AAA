@@ -291,6 +291,47 @@ if client_docs:
         )
 else:
     st.info("Sube PDFs, imágenes o un ZIP para comenzar.")
+# ======================
+# 🔗 Emparejamiento de oficio (PDF) y respuesta (Word)
+# ======================
+
+st.subheader("📎 Comparador de Oficios y Respuestas")
+st.caption("Sube los oficios en PDF y las respuestas en Word (DOCX). El sistema detectará automáticamente los pares por número de radicado o póliza.")
+
+uploaded_files = st.file_uploader(
+    "Arrastra o selecciona 1 o varios archivos (PDF y DOCX)",
+    type=["pdf", "docx"],
+    accept_multiple_files=True
+)
+
+pairs = {}
+
+if uploaded_files:
+    for up in uploaded_files:
+        name = up.name
+        base = os.path.splitext(name)[0]
+        data = up.read()
+
+        # Extraer número de radicado o póliza desde el nombre del archivo
+        match = re.search(r"(\d{6,})", base)
+        if not match:
+            continue
+        rad = match.group(1)
+
+        # Clasificar según tipo
+        ext = os.path.splitext(name)[1].lower()
+        if ext == ".pdf":
+            pairs.setdefault(rad, {})["pqr"] = data
+            pairs[rad]["pqr_name"] = name
+        elif ext == ".docx":
+            pairs.setdefault(rad, {})["resp"] = data
+            pairs[rad]["resp_name"] = name
+
+    # Mostrar resumen de emparejamiento
+    total_pairs = sum(1 for p in pairs.values() if "pqr" in p and "resp" in p)
+    st.success(f"📂 Pares detectados: {total_pairs}")
+    if total_pairs == 0:
+        st.warning("⚠️ No se detectaron pares completos. Verifica que los nombres contengan el mismo número de radicado o póliza.")
 
 # ======================
 # ⚙️ Procesamiento principal – Análisis IA
