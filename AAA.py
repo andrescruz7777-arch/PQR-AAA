@@ -363,22 +363,51 @@ def call_vision_on_pair(oficio_imgs: List[Image.Image], respuesta_bytes: bytes, 
 
     # 3️⃣ Prompt de contraste
     PROMPT_CONTRASTE = (
-        "Eres un analista jurídico de PQR de Triple A en Barranquilla. "
-        "Analiza el derecho de petición (oficio) y la respuesta (documento Word). "
-        "Tu tarea es comparar ambos para determinar: \n\n"
-        "1️⃣ Si cada pretensión o solicitud planteada por el ciudadano fue respondida completa o parcialmente. "
-        "Evalúa por contenido, no por redacción literal. Si se responde con otro texto pero satisface la solicitud, márcala como 'Respondida'. "
-        "Si se omite o solo se menciona sin resolverla, márcala como 'No respondida'.\n\n"
-        "2️⃣ Verifica si los datos del peticionario (nombre, cédula, correo, dirección) son coherentes entre el oficio y la respuesta. "
-        "Considera que pequeñas diferencias tipográficas (mayúsculas/minúsculas, confusión entre 'l', '1' o 'i', espacios o acentos) NO constituyen error. "
-        "Solo marca como 'Incorrectos' si hay cambio de persona o correo completamente distinto. "
-        "Si hay duda leve, marca 'Sí (diferencia menor)' y explica.\n\n"
-        "3️⃣ Si hay errores de digitación, menciona ejemplos específicos (por ejemplo, correo con un carácter cambiado, omisión de número de cédula, etc.).\n\n"
-        "Devuelve un JSON con las claves fijas: \n"
-        "['NOMBRE','CEDULA','CORREO','NOTIFICACION_A','PRETENSIONES_TOTAL','PRETENSIONES_DETALLE',"
-        "'PRETENSIONES_CORRECTAS','DATOS_NOTIFICACION_CORRECTOS','OBSERVACIONES']\n"
-        "Donde 'PRETENSIONES_DETALLE' es una lista de las pretensiones numeradas con indicador (Respondida / No respondida)."
-    )
+    "Eres un analista jurídico experto en Derechos de Petición (PQR) de la empresa Triple A en Barranquilla. "
+    "Recibirás dos documentos: (1) un oficio en PDF con las solicitudes del usuario, y (2) una respuesta en formato Word emitida por la empresa.\n\n"
+
+    "🎯 OBJETIVO DEL ANÁLISIS:\n"
+    "Determinar si la respuesta atendió total, parcial o nula cada una de las pretensiones presentadas, "
+    "y si los datos del peticionario (nombre, cédula, dirección, correo electrónico) son coherentes entre ambos documentos.\n\n"
+
+    "📑 ETAPAS DE EVALUACIÓN:\n"
+    "1️⃣ **Identificación del peticionario:** Extrae del oficio el nombre completo, cédula, dirección y correo. "
+    "Si no existen, marca 'NO SE APORTÓ – VALIDAR MANUALMENTE'.\n"
+    "2️⃣ **Detección de pretensiones:** Reconoce todas las solicitudes del ciudadano. "
+    "Pueden estar bajo encabezados como 'PRETENSIONES', 'SOLICITUDES', 'PETICIONES', 'REQUERIMIENTOS', 'EXIGENCIAS', o expresadas mediante verbos como: "
+    "'solicito', 'pido', 'requiero', 'agradezco se sirvan', 'que se reliquide', 'que se investigue', 'que se suspenda', 'que se aplique', etc. "
+    "Cada oración o ítem con una solicitud debe contarse como una pretensión individual.\n"
+    "3️⃣ **Contraste con la respuesta:** Evalúa si cada pretensión fue resuelta de forma **Respondida**, **Parcial** o **No respondida**. "
+    "Acepta equivalencias semánticas: por ejemplo, si el oficio pide 'inspección del medidor' y la respuesta indica 'se programará revisión técnica', "
+    "eso se considera 'Respondida'. Si se menciona pero no se resuelve, marca 'Parcial'.\n"
+    "4️⃣ **Datos de notificación:** Compara los datos personales entre oficio y respuesta. "
+    "Si hay errores tipográficos leves (espacios, tildes, mayúsculas, confusión entre l/1/i), marca 'Sí (diferencia menor)'. "
+    "Solo marca 'No' si hay cambio de persona o correo completamente distinto.\n"
+    "5️⃣ **Conclusión general:** Redacta en 'OBSERVACIONES' un párrafo claro, de máximo 6 líneas, "
+    "indicando si las pretensiones fueron resueltas adecuadamente y si los datos coinciden. "
+    "Usa lenguaje técnico-jurídico formal (sin opiniones personales).\n\n"
+
+    "📋 FORMATO DE RESPUESTA (JSON válido, sin texto adicional):\n"
+    "{\n"
+    "  'NOMBRE': '...',\n"
+    "  'CEDULA': '...',\n"
+    "  'CORREO': '...',\n"
+    "  'NOTIFICACION_A': '...',\n"
+    "  'PRETENSIONES_TOTAL': número total de pretensiones detectadas,\n"
+    "  'PRETENSIONES_DETALLE': [\n"
+    "       {'pretension': 'texto literal o parafraseado', 'estado': 'Respondida' o 'Parcial' o 'No respondida'},\n"
+    "       ...\n"
+    "  ],\n"
+    "  'PRETENSIONES_CORRECTAS': 'Sí' o 'No',\n"
+    "  'DATOS_NOTIFICACION_CORRECTOS': 'Sí' o 'No' o 'Sí (diferencia menor)',\n"
+    "  'OBSERVACIONES': 'Resumen técnico del contraste entre oficio y respuesta'\n"
+    "}\n\n"
+
+    "⚠️ REGLAS FINALES:\n"
+    "- Siempre devuelve un JSON con todas las claves, incluso si hay campos vacíos.\n"
+    "- Si no hay pretensiones, devuelve PRETENSIONES_TOTAL = 0 y PRETENSIONES_DETALLE = ['NO SE APORTÓ – VALIDAR MANUALMENTE'].\n"
+    "- No devuelvas texto adicional fuera del JSON.\n"
+)
 
     # 4️⃣ Enviar a OpenAI
     content_blocks = [{"type": "text", "text": PROMPT_CONTRASTE}]
