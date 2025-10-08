@@ -62,8 +62,8 @@ def image_to_data_url(img: Image.Image, format: str = "JPEG", quality: int = 85)
 
 PROMPT_CORE = (
     "Eres analista de PQR de Triple A (Barranquilla). "
-    "Analiza SOLO el cuerpo del derecho de petición (ignora anexos, facturas, sellos o comprobantes).\n\n"
-    "EXTRAE EXCLUSIVAMENTE si aparecen CLAROS y LITERALES estos campos (NO inventes nada):\n"
+   "Analiza TODO el contenido visible del derecho de petición, incluyendo encabezados y secciones finales (como 'Notificaciones', 'Dirección', 'Correo', 'C.C.', 'Atentamente'), "
+    "pero ignora anexos, comprobantes o facturas. Si los datos del peticionario (nombre, cédula, correo, dirección) aparecen en encabezado o firma, deben incluirse en la respuesta.\n\n""EXTRAE EXCLUSIVAMENTE si aparecen CLAROS y LITERALES estos campos (NO inventes nada):\n"
     "- CEDULA\n- NOMBRE COMPLETO\n- CORREO ELECTRÓNICO\n- TELÉFONO\n- MOTIVO_PQR (puede estar en 'Referencia', 'Ref.', 'Asunto' o en la introducción)\n"
     "- QUIEN_PRESENTA (peticionario principal, no el apoderado)\n- NOTIFICACION_A (dirección/lugar de notificación; puede aparecer como 'Notificaciones', 'Citación', 'Correspondencia')\n"
     "- RESUMEN_PQR (síntesis amplia y descriptiva del caso, de 8 a 12 líneas como mínimo, tomando frases del documento sin inventar. "
