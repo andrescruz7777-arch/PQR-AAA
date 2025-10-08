@@ -291,3 +291,222 @@ if client_docs:
         )
 else:
     st.info("Sube PDFs, imágenes o un ZIP para comenzar.")
+    # ======================
+# 🔗 Emparejamiento de oficio (PDF) y respuesta (Word)
+# ======================
+
+st.divider()
+st.header("📑 VALIDACIÓN DE RESPUESTAS A PQR — FASE 2")
+st.caption("Sube los oficios en PDF y las respuestas en Word (DOCX). El sistema comparará automáticamente pretensiones y datos de notificación.")
+
+uploaded_files = st.file_uploader(
+    "Arrastra o selecciona 1 o varios archivos PDF (oficios) y DOCX (respuestas)",
+    type=["pdf", "docx"],
+    accept_multiple_files=True
+)
+
+pairs = {}
+
+if uploaded_files:
+    for up in uploaded_files:
+        name = up.name
+        base = os.path.splitext(name)[0]
+        data = up.read()
+
+        # Detectar número de radicado o póliza (6+ dígitos)
+        match = re.search(r"(\d{6,})", base)
+        if not match:
+            continue
+        rad = match.group(1)
+
+        ext = os.path.splitext(name)[1].lower()
+        if ext == ".pdf":
+            pairs.setdefault(rad, {})["pqr"] = data
+            pairs[rad]["pqr_name"] = name
+        elif ext == ".docx":
+            pairs.setdefault(rad, {})["resp"] = data
+            pairs[rad]["resp_name"] = name
+
+    total_pairs = sum(1 for p in pairs.values() if "pqr" in p and "resp" in p)
+    st.success(f"📂 Pares detectados: {total_pairs}")
+    if total_pairs == 0:
+        st.warning("⚠️ No se detectaron pares completos. Verifica que los nombres contengan el mismo número de radicado o póliza.")
+
+
+# ======================
+# 📚 Función comparativa IA (oficio vs respuesta)
+# ======================
+from docx import Document
+
+def call_vision_on_pair(oficio_imgs: List[Image.Image], respuesta_bytes: bytes, model: str = "gpt-4o-mini") -> Dict:
+    """Analiza un oficio (PDF en imágenes) y su respuesta (Word) usando GPT visión+texto."""
+    if not OAI_READY:
+        return {"OBSERVACIONES": "IA no inicializada", "PRETENSIONES_TOTAL": 0}
+
+    # 1️⃣ Convertir oficio PDF → base64
+    oficio_blocks = []
+    for im in oficio_imgs:
+        oficio_blocks.append({
+            "type": "image_url",
+            "image_url": {"url": image_to_data_url(im)}
+        })
+
+    # 2️⃣ Extraer texto de la respuesta Word
+    try:
+        doc = Document(io.BytesIO(respuesta_bytes))
+        respuesta_text = "\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+    except Exception:
+        respuesta_text = "NO SE PUDO LEER LA RESPUESTA – VALIDAR MANUALMENTE"
+
+    # 3️⃣ Prompt comparativo
+    prompt = (
+        "Eres un analista jurídico experto en derechos de petición. "
+        "Compara el oficio (en imágenes) con la respuesta (texto Word). "
+        "Tu tarea es identificar con precisión:\n\n"
+        "1️⃣ Si la respuesta da solución total, parcial o nula a cada pretensión del oficio. "
+        "Enuméralas con su número y marca 'Sí' o 'No'.\n"
+        "2️⃣ Si los datos del peticionario (nombre, cédula, correo) coinciden correctamente. "
+        "Si hay errores, indícalos textualmente.\n"
+        "3️⃣ Señala omisiones o inconsistencias.\n"
+        "4️⃣ Resume en un párrafo técnico los hallazgos.\n\n"
+        "Devuelve un JSON válido con esta estructura:\n"
+        "{\n"
+        "  'NOMBRE': '...',\n"
+        "  'CEDULA': '...',\n"
+        "  'CORREO': '...',\n"
+        "  'NOTIFICACION_A': '...',\n"
+        "  'PRETENSIONES_TOTAL': N,\n"
+        "  'PRETENSIONES_DETALLE': [ {'texto': '...', 'respondida': 'Sí/No'}, ...],\n"
+        "  'PRETENSIONES_CORRECTAS': 'Sí/No/Parcial',\n"
+        "  'DATOS_NOTIFICACION_CORRECTOS': 'Sí/No',\n"
+        "  'OBSERVACIONES': 'Resumen técnico del análisis'\n"
+        "}\n\n"
+        "No inventes nada: si algo no se encuentra, indica 'NO SE APORTÓ – VALIDAR MANUALMENTE'."
+    )
+
+    # 4️⃣ Enviar a OpenAI
+    content_blocks = [{"type": "text", "text": prompt}]
+    content_blocks.extend(oficio_blocks)
+    content_blocks.append({"type": "text", "text": f"Respuesta del analista:\n{respuesta_text}"})
+
+    try:
+        resp = oai_client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": content_blocks}],
+            temperature=0,
+        )
+        raw = resp.choices[0].message.content
+        data = _safe_json_loads(raw)
+        if not data:
+            raise ValueError("Respuesta IA inválida o vacía")
+        return data
+    except Exception as e:
+        return {"OBSERVACIONES": f"Falla en procesamiento IA: {e}", "PRETENSIONES_TOTAL": 0}
+
+
+# ======================
+# ⚙️ Procesamiento principal – Comparación masiva
+# ======================
+if pairs:
+    st.subheader("⚙️ Procesamiento de análisis comparativo")
+    model_name = st.selectbox("Modelo de visión", ["gpt-4o-mini", "gpt-4o"], index=0)
+    run = st.button("🚀 Analizar todos los pares")
+
+    if run:
+        resultados = []
+        progreso = st.progress(0)
+
+        for i, (rad, docs) in enumerate(pairs.items(), start=1):
+            try:
+                oficio_imgs = pdf_bytes_to_images(docs["pqr"])
+                respuesta_bytes = docs["resp"]
+
+                resultado = call_vision_on_pair(oficio_imgs, respuesta_bytes, model=model_name)
+                resultado["RADICADO"] = rad
+                resultado["ARCHIVO_PQR"] = docs.get("pqr_name", "NO REGISTRADO")
+                resultado["ARCHIVO_RESPUESTA"] = docs.get("resp_name", "NO REGISTRADO")
+
+                # Normalizar detalle
+                detalle = resultado.get("PRETENSIONES_DETALLE", [])
+                if isinstance(detalle, list):
+                    detalle_str = "\n".join([
+                        f"{idx+1}. {p.get('texto', p) if isinstance(p, dict) else str(p)} "
+                        f"({p.get('respondida','NO') if isinstance(p, dict) else 'NO'})"
+                        for idx, p in enumerate(detalle)
+                    ])
+                else:
+                    detalle_str = str(detalle)
+
+                resultados.append({
+                    "RADICADO": rad,
+                    "POLIZA": re.search(r'(\d{6,})', docs.get("pqr_name", "")) and re.search(r'(\d{6,})', docs["pqr_name"]).group(1) or "NO SE APORTÓ",
+                    "NOMBRE": resultado.get("NOMBRE", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "CEDULA": resultado.get("CEDULA", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "CORREO": resultado.get("CORREO", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "NOTIFICACION_A": resultado.get("NOTIFICACION_A", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "PRETENSIONES_TOTAL": resultado.get("PRETENSIONES_TOTAL", 0),
+                    "PRETENSIONES_DETALLE": detalle_str,
+                    "PRETENSIONES_CORRECTAS": resultado.get("PRETENSIONES_CORRECTAS", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "DATOS_NOTIFICACION_CORRECTOS": resultado.get("DATOS_NOTIFICACION_CORRECTOS", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "OBSERVACIONES": resultado.get("OBSERVACIONES", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "ARCHIVO_PQR": docs.get("pqr_name", "NO REGISTRADO"),
+                    "ARCHIVO_RESPUESTA": docs.get("resp_name", "NO REGISTRADO"),
+                })
+
+            except Exception as e:
+                resultados.append({
+                    "RADICADO": rad,
+                    "POLIZA": "ERROR",
+                    "NOMBRE": "ERROR",
+                    "CEDULA": "ERROR",
+                    "CORREO": "ERROR",
+                    "NOTIFICACION_A": "ERROR",
+                    "PRETENSIONES_TOTAL": 0,
+                    "PRETENSIONES_DETALLE": str(e),
+                    "PRETENSIONES_CORRECTAS": "ERROR",
+                    "DATOS_NOTIFICACION_CORRECTOS": "ERROR",
+                    "OBSERVACIONES": "Falla en procesamiento IA",
+                    "ARCHIVO_PQR": docs.get("pqr_name", "NO REGISTRADO"),
+                    "ARCHIVO_RESPUESTA": docs.get("resp_name", "NO REGISTRADO"),
+                })
+
+            progreso.progress(i / len(pairs))
+
+        # 🧾 Crear DataFrame
+        df = pd.DataFrame(resultados)
+        st.success("✅ Análisis completado con éxito.")
+        st.subheader("📊 Resultado consolidado")
+        st.dataframe(df, use_container_width=True)
+
+        # 📥 Generar Excel con colores condicionales
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine="openpyxl") as writer:
+            df.to_excel(writer, sheet_name="Comparativo_PQR", index=False)
+            ws = writer.sheets["Comparativo_PQR"]
+
+            from openpyxl.formatting.rule import CellIsRule
+            from openpyxl.styles import PatternFill
+
+            # Verde = Correcto
+            fill_green = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+            # Amarillo = Parcial
+            fill_yellow = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+            # Rojo = Incorrecto
+            fill_red = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
+
+            # Aplicar reglas de color
+            ws.conditional_formatting.add("H2:H2000", CellIsRule(operator="equal", formula=['"Sí"'], fill=fill_green))
+            ws.conditional_formatting.add("H2:H2000", CellIsRule(operator="equal", formula=['"Parcial"'], fill=fill_yellow))
+            ws.conditional_formatting.add("H2:H2000", CellIsRule(operator="equal", formula=['"No"'], fill=fill_red))
+            ws.conditional_formatting.add("I2:I2000", CellIsRule(operator="equal", formula=['"Sí"'], fill=fill_green))
+            ws.conditional_formatting.add("I2:I2000", CellIsRule(operator="equal", formula=['"No"'], fill=fill_red))
+
+        st.download_button(
+            "📥 Descargar Excel consolidado con formato",
+            data=out.getvalue(),
+            file_name="comparativo_pqr_respuestas.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+else:
+    st.info("Sube los documentos para analizar (PDF + DOCX con mismo radicado).")
+
