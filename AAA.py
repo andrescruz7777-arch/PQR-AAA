@@ -362,30 +362,23 @@ def call_vision_on_pair(oficio_imgs: List[Image.Image], respuesta_bytes: bytes, 
         respuesta_text = "NO SE PUDO LEER LA RESPUESTA – VALIDAR MANUALMENTE"
 
     # 3️⃣ Prompt comparativo
-    prompt = (
-        "Eres un analista jurídico experto en derechos de petición. "
-        "Compara el oficio (en imágenes) con la respuesta (texto Word). "
-        "Tu tarea es identificar con precisión:\n\n"
-        "1️⃣ Si la respuesta da solución total, parcial o nula a cada pretensión del oficio. "
-        "Enuméralas con su número y marca 'Sí' o 'No'.\n"
-        "2️⃣ Si los datos del peticionario (nombre, cédula, correo) coinciden correctamente. "
-        "Si hay errores, indícalos textualmente.\n"
-        "3️⃣ Señala omisiones o inconsistencias.\n"
-        "4️⃣ Resume en un párrafo técnico los hallazgos.\n\n"
-        "Devuelve un JSON válido con esta estructura:\n"
-        "{\n"
-        "  'NOMBRE': '...',\n"
-        "  'CEDULA': '...',\n"
-        "  'CORREO': '...',\n"
-        "  'NOTIFICACION_A': '...',\n"
-        "  'PRETENSIONES_TOTAL': N,\n"
-        "  'PRETENSIONES_DETALLE': [ {'texto': '...', 'respondida': 'Sí/No'}, ...],\n"
-        "  'PRETENSIONES_CORRECTAS': 'Sí/No/Parcial',\n"
-        "  'DATOS_NOTIFICACION_CORRECTOS': 'Sí/No',\n"
-        "  'OBSERVACIONES': 'Resumen técnico del análisis'\n"
-        "}\n\n"
-        "No inventes nada: si algo no se encuentra, indica 'NO SE APORTÓ – VALIDAR MANUALMENTE'."
-    )
+   PROMPT_CONTRASTE = (
+    "Eres un analista jurídico de PQR de Triple A en Barranquilla. "
+    "Analiza el derecho de petición (oficio) y la respuesta (documento Word). "
+    "Tu tarea es comparar ambos para determinar: \n\n"
+    "1️⃣ Si cada pretensión o solicitud planteada por el ciudadano fue respondida completa o parcialmente. "
+    "Evalúa por contenido, no por redacción literal. Si se responde con otro texto pero satisface la solicitud, márcala como 'Respondida'. "
+    "Si se omite o solo se menciona sin resolverla, márcala como 'No respondida'.\n\n"
+    "2️⃣ Verifica si los datos del peticionario (nombre, cédula, correo, dirección) son coherentes entre el oficio y la respuesta. "
+    "Considera que pequeñas diferencias tipográficas (mayúsculas/minúsculas, confusión entre 'l', '1' o 'i', espacios o acentos) NO constituyen error. "
+    "Solo marca como 'Incorrectos' si hay cambio de persona o correo completamente distinto. "
+    "Si hay duda leve, marca 'Sí (diferencia menor)' y explica.\n\n"
+    "3️⃣ Si hay errores de digitación, menciona ejemplos específicos (por ejemplo, correo con un carácter cambiado, omisión de número de cédula, etc.).\n\n"
+    "Devuelve un JSON con las claves fijas: \n"
+    "['NOMBRE','CEDULA','CORREO','NOTIFICACION_A','PRETENSIONES_TOTAL','PRETENSIONES_DETALLE',"
+    "'PRETENSIONES_CORRECTAS','DATOS_NOTIFICACION_CORRECTOS','OBSERVACIONES']\n"
+    "Donde 'PRETENSIONES_DETALLE' es una lista de las pretensiones numeradas con indicador (Respondida / No respondida)."
+)
 
     # 4️⃣ Enviar a OpenAI
     content_blocks = [{"type": "text", "text": prompt}]
