@@ -292,220 +292,97 @@ if client_docs:
 else:
     st.info("Sube PDFs, imágenes o un ZIP para comenzar.")
 
-# ===============================
-# ⚖️ Validador de Respuestas PQR – Fase 2 (Triple A)
-# ===============================
-
-import io, os, re, zipfile, tempfile, base64, json
-import pandas as pd
-from typing import List, Dict
-from PIL import Image
-import streamlit as st
-import pypdfium2 as pdfium
-from docx import Document
-
 # ======================
-# Configuración Streamlit
-# ======================
-st.set_page_config(page_title="⚖️ Validador PQR – Fase 2", layout="wide")
-st.title("⚖️ Validador IA de Respuestas PQR – Triple A 🧠📄")
-st.caption("Sube los oficios (PDF) y las respuestas (Word) en lotes. El sistema los asocia por número de radicado y valida cumplimiento y datos.")
-
-# ======================
-# OpenAI Client
-# ======================
-try:
-    from openai import OpenAI
-    OPENAI_API_KEY = st.secrets.get("OPENAI_API_KEY", None)
-    if OPENAI_API_KEY:
-        os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
-    oai_client = OpenAI()
-    OAI_READY = True
-except Exception as e:
-    OAI_READY = False
-    st.warning("⚠️ OpenAI SDK no disponible. Revisa requirements y API key en secrets.")
-
-# ======================
-# Utilidades de conversión
-# ======================
-def pdf_to_images(pdf_bytes: bytes, dpi: int = 180) -> List[Image.Image]:
-    images = []
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(pdf_bytes)
-        tmp.flush()
-        pdf = pdfium.PdfDocument(tmp.name)
-        for i in range(len(pdf)):
-            page = pdf[i]
-            bitmap = page.render(scale=dpi/72).to_pil()
-            images.append(bitmap.convert("RGB"))
-    return images
-
-def word_to_images(docx_bytes: bytes) -> List[Image.Image]:
-    """Convierte un Word en una sola imagen por página, renderizando texto plano."""
-    with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp:
-        tmp.write(docx_bytes)
-        tmp.flush()
-        doc = Document(tmp.name)
-    text = "\n".join([p.text for p in doc.paragraphs])
-    # Generar imagen simple con texto (para visión IA)
-    import textwrap
-    from PIL import ImageDraw, ImageFont
-    lines = textwrap.wrap(text, width=110)
-    img = Image.new("RGB", (1600, max(1000, len(lines) * 20)), "white")
-    d = ImageDraw.Draw(img)
-    y = 20
-    for line in lines:
-        d.text((20, y), line, fill="black")
-        y += 20
-    return [img]
-
-def img_to_dataurl(img: Image.Image) -> str:
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
-    return f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}"
-
-# ======================
-# PROMPT DE COMPARACIÓN IA
-# ======================
-PROMPT_COMPARE = (
-    "Eres analista senior de control de calidad PQR de Triple A. "
-    "Analiza en conjunto un derecho de petición (PQR en PDF) y la respuesta del analista (Word).\n\n"
-    "OBJETIVOS:\n"
-    "1. Verifica si TODAS las pretensiones del ciudadano fueron respondidas.\n"
-    "2. Evalúa si los datos de notificación (nombre, cédula, correo) coinciden o son correctos.\n\n"
-    "Devuelve SOLO un JSON con las claves:\n"
-    "['RADICADO','POLIZA','PRETENSIONES_TOTAL','RESPUESTAS_TOTAL',"
-    "'PRETENSIONES_CORRECTAS','DATOS_NOTIFICACION_CORRECTOS','OBSERVACIONES'].\n"
-    "- PRETENSIONES_CORRECTAS: 'SI','NO','PARCIAL'\n"
-    "- DATOS_NOTIFICACION_CORRECTOS: 'SI' o 'NO'\n"
-    "- OBSERVACIONES: lista breve con los faltantes o inconsistencias encontradas.\n"
-    "No inventes radicados o datos; usa solo lo visible en los documentos."
-)
-
-def analyze_pair(pqr_imgs: List[Image.Image], resp_imgs: List[Image.Image], model="gpt-4o-mini") -> Dict:
-    """Analiza un par de documentos (PQR + respuesta)"""
-    if not OAI_READY:
-        return _empty_payload()
-
-    content = [{"type": "text", "text": PROMPT_COMPARE}]
-    for im in pqr_imgs:
-        content.append({"type": "image_url", "image_url": {"url": img_to_dataurl(im)}})
-    for im in resp_imgs:
-        content.append({"type": "image_url", "image_url": {"url": img_to_dataurl(im)}})
-
-    try:
-        resp = oai_client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": content}],
-            temperature=0
-        )
-        raw = resp.choices[0].message.content
-        data = json.loads(raw)
-        return _normalize(data)
-    except Exception as e:
-        return _empty_payload()
-
-def _normalize(d: Dict) -> Dict:
-    def nz(v): return v if v else "NO SE APORTÓ – VALIDAR MANUALMENTE"
-    return {
-        "RADICADO": nz(d.get("RADICADO")),
-        "POLIZA": nz(d.get("POLIZA")),
-        "PRETENSIONES_TOTAL": d.get("PRETENSIONES_TOTAL", 0),
-        "RESPUESTAS_TOTAL": d.get("RESPUESTAS_TOTAL", 0),
-        "PRETENSIONES_CORRECTAS": nz(d.get("PRETENSIONES_CORRECTAS")),
-        "DATOS_NOTIFICACION_CORRECTOS": nz(d.get("DATOS_NOTIFICACION_CORRECTOS")),
-        "OBSERVACIONES": ", ".join(d.get("OBSERVACIONES", [])) if isinstance(d.get("OBSERVACIONES"), list) else nz(d.get("OBSERVACIONES"))
-    }
-
-def _empty_payload() -> Dict:
-    return {
-        "RADICADO": "NO SE APORTÓ – VALIDAR MANUALMENTE",
-        "POLIZA": "NO SE APORTÓ – VALIDAR MANUALMENTE",
-        "PRETENSIONES_TOTAL": 0,
-        "RESPUESTAS_TOTAL": 0,
-        "PRETENSIONES_CORRECTAS": "NO SE APORTÓ – VALIDAR MANUALMENTE",
-        "DATOS_NOTIFICACION_CORRECTOS": "NO SE APORTÓ – VALIDAR MANUALMENTE",
-        "OBSERVACIONES": "NO SE APORTÓ – VALIDAR MANUALMENTE"
-    }
-# ======================
-# 📦 Carga flexible de documentos (1 o varios, sin ZIP)
-# ======================
-st.subheader("📦 Carga de documentos PQR y Respuestas")
-
-uploaded_files = st.file_uploader(
-    "Sube uno o varios archivos PDF (PQR) y Word (respuestas)",
-    type=["pdf", "docx"],
-    accept_multiple_files=True
-)
-
-pairs = {}
-
-if uploaded_files:
-    pqr_files, resp_files = {}, {}
-
-    for file in uploaded_files:
-        name = os.path.basename(file.name)
-        data = file.read()
-
-        # Detectar número de radicado (7 a 9 dígitos seguidos)
-        rad_match = re.search(r'(\d{7,9})', name)
-        rad = rad_match.group(1) if rad_match else None
-
-        if not rad:
-            st.warning(f"⚠️ No se detectó número de radicado en: {name}")
-            continue
-
-        # Clasificar por tipo
-        if name.lower().endswith(".pdf"):
-            pqr_files[rad] = {"name": name, "data": data}
-        elif name.lower().endswith(".docx"):
-            resp_files[rad] = {"name": name, "data": data}
-
-    # Asociar por radicado
-    for rad in pqr_files:
-        if rad in resp_files:
-            pairs[rad] = {
-                "pqr": pqr_files[rad]["data"],
-                "pqr_name": pqr_files[rad]["name"],
-                "resp": resp_files[rad]["data"],
-                "resp_name": resp_files[rad]["name"],
-            }
-
-    st.success(f"🧾 Pares detectados: {len(pairs)}")
-    if len(pairs) < len(pqr_files):
-        st.info(f"📌 Algunos oficios no tienen respuesta asociada.")
-else:
-    st.info("Sube archivos PDF y Word para comenzar (no es necesario usar ZIP).")
-# ======================
-# Procesamiento IA
+# ⚙️ Procesamiento principal – Análisis IA
 # ======================
 if pairs:
+    st.subheader("⚙️ Procesamiento de análisis")
     model_name = st.selectbox("Modelo de visión", ["gpt-4o-mini", "gpt-4o"], index=0)
     run = st.button("🚀 Analizar todos los pares")
 
     if run:
-        rows = []
-        progress = st.progress(0)
-        for i, (rad, data) in enumerate(pairs.items(), start=1):
-            pqr_imgs = pdf_to_images(data["pqr"])
-            resp_imgs = word_to_images(data["resp"])
-            result = analyze_pair(pqr_imgs, resp_imgs, model=model_name)
-            rows.append(result)
-            progress.progress(i / len(pairs))
-        st.success("✔️ Análisis completado.")
+        resultados = []
+        progreso = st.progress(0)
 
-        df = pd.DataFrame(rows)
+        for i, (rad, docs) in enumerate(pairs.items(), start=1):
+            try:
+                oficio_imgs = pdf_bytes_to_images(docs["pqr"])
+                respuesta_bytes = docs["resp"]
+
+                resultado = call_vision_on_pair(oficio_imgs, respuesta_bytes, model=model_name)
+                resultado["RADICADO"] = rad
+                resultado["ARCHIVO_PQR"] = docs.get("pqr_name", "NO REGISTRADO")
+                resultado["ARCHIVO_RESPUESTA"] = docs.get("resp_name", "NO REGISTRADO")
+
+                # Limpieza de campos y respaldo
+                resultado.setdefault("OBSERVACIONES", "NO SE APORTÓ – VALIDAR MANUALMENTE")
+                resultado.setdefault("PRETENSIONES_TOTAL", 0)
+                resultado.setdefault("PRETENSIONES_DETALLE", [])
+                resultado.setdefault("PRETENSIONES_CORRECTAS", "NO SE APORTÓ – VALIDAR MANUALMENTE")
+                resultado.setdefault("DATOS_NOTIFICACION_CORRECTOS", "NO SE APORTÓ – VALIDAR MANUALMENTE")
+
+                # Si PRETENSIONES_DETALLE viene como lista de objetos -> convertir a texto plano
+                detalle = resultado.get("PRETENSIONES_DETALLE", [])
+                if isinstance(detalle, list):
+                    detalle_str = "\n".join([
+                        f"{idx+1}. {p.get('texto', p) if isinstance(p, dict) else str(p)} "
+                        f"({p.get('respondida','NO') if isinstance(p, dict) else 'NO'})"
+                        for idx, p in enumerate(detalle)
+                    ])
+                else:
+                    detalle_str = str(detalle)
+
+                resultados.append({
+                    "RADICADO": rad,
+                    "POLIZA": re.search(r'(\d{6,})', docs.get("pqr_name", "")) and re.search(r'(\d{6,})', docs["pqr_name"]).group(1) or "NO SE APORTÓ",
+                    "NOMBRE": resultado.get("NOMBRE", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "CEDULA": resultado.get("CEDULA", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "CORREO": resultado.get("CORREO", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "NOTIFICACION_A": resultado.get("NOTIFICACION_A", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "PRETENSIONES_TOTAL": resultado.get("PRETENSIONES_TOTAL", 0),
+                    "PRETENSIONES_DETALLE": detalle_str,
+                    "PRETENSIONES_CORRECTAS": resultado.get("PRETENSIONES_CORRECTAS", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "DATOS_NOTIFICACION_CORRECTOS": resultado.get("DATOS_NOTIFICACION_CORRECTOS", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "OBSERVACIONES": resultado.get("OBSERVACIONES", "NO SE APORTÓ – VALIDAR MANUALMENTE"),
+                    "ARCHIVO_PQR": docs.get("pqr_name", "NO REGISTRADO"),
+                    "ARCHIVO_RESPUESTA": docs.get("resp_name", "NO REGISTRADO"),
+                })
+
+            except Exception as e:
+                resultados.append({
+                    "RADICADO": rad,
+                    "POLIZA": "ERROR",
+                    "NOMBRE": "ERROR",
+                    "CEDULA": "ERROR",
+                    "CORREO": "ERROR",
+                    "NOTIFICACION_A": "ERROR",
+                    "PRETENSIONES_TOTAL": 0,
+                    "PRETENSIONES_DETALLE": str(e),
+                    "PRETENSIONES_CORRECTAS": "ERROR",
+                    "DATOS_NOTIFICACION_CORRECTOS": "ERROR",
+                    "OBSERVACIONES": "Falla en procesamiento IA",
+                    "ARCHIVO_PQR": docs.get("pqr_name", "NO REGISTRADO"),
+                    "ARCHIVO_RESPUESTA": docs.get("resp_name", "NO REGISTRADO"),
+                })
+
+            progreso.progress(i / len(pairs))
+
+        # 🧾 Generar DataFrame y mostrar resultado
+        df = pd.DataFrame(resultados)
+        st.success("✅ Análisis completado con éxito.")
+        st.subheader("📊 Resultado consolidado")
         st.dataframe(df, use_container_width=True)
 
+        # 📥 Descargar Excel
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
-            df.to_excel(writer, sheet_name="VALIDACION_PQR", index=False)
+            df.to_excel(writer, sheet_name="Comparativo_PQR", index=False)
+
         st.download_button(
             "📥 Descargar Excel consolidado",
             data=out.getvalue(),
-            file_name="validacion_pqr.xlsx",
+            file_name="comparativo_pqr_respuestas.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
 else:
-    st.info("Sube los dos ZIP (PQR y Respuestas) para comenzar.")
-
+    st.info("Sube los documentos para analizar (PDF + DOCX con mismo radicado).")
